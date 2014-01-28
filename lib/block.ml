@@ -47,14 +47,30 @@ type info = {
   size_sectors: int64;
 }
 
+let pool_size = 16 (* fds per device *)
+
 type t = {
-  mutable fd: Lwt_unix.file_descr option;
-  m: Lwt_mutex.t;
+  mutable fds: Lwt_unix.file_descr list; (* pool of fds *)
+  c: unit Lwt_condition.t;
   name: string;
   info: info;
+  mutable disconnected: bool;
 }
 
 let id { name } = name
+
+let with_fd t f =
+  let rec loop () = match t.fds with
+  | fd :: fds ->
+    t.fds <- fds;
+    let finally () =
+      t.fds <- fd :: t.fds;
+      Lwt_condition.signal t.c () in
+    Lwt.catch (fun () -> f fd >>= fun x -> finally (); return x) (fun e -> finally (); fail e)
+  | [] ->
+    Lwt_condition.wait t.c >>= fun () ->
+    loop () in
+  loop ()
 
 module Result = struct
   type ('a, 'b) result = [
@@ -113,19 +129,25 @@ let connect name =
     | `Ok x ->
       let sector_size = 512 in (* XXX: hardcoded *)
       let size_sectors = Int64.(div x (of_int sector_size)) in
-      let fd = Lwt_unix.of_unix_file_descr fd in
-      let m = Lwt_mutex.create () in
-      return (`Ok { fd = Some fd; m; name; info = { sector_size; size_sectors; read_write } })
+      let c = Lwt_condition.create () in
+      let disconnected = false in
+      let t = { name; fds = []; c; info = { sector_size; size_sectors; read_write }; disconnected } in
+
+      for i = 1 to pool_size do
+        t.fds <- Lwt_unix.of_unix_file_descr (openfile name read_write 0o0) :: t.fds
+      done;
+      t.fds <- Lwt_unix.of_unix_file_descr fd :: t.fds;
+
+      return (`Ok t)
   with e ->
     return (`Error (`Unknown (Printf.sprintf "connect %s: failed to oppen file" name)))
 
-let disconnect t = match t.fd with
-  | Some fd ->
-    Lwt_unix.close fd >>= fun () ->
-    t.fd <- None;
-    return ()
-  | None ->
-    return ()
+let disconnect t =
+  let fds = t.fds in
+  t.fds <- [];
+  t.disconnected <- true;
+  Lwt_list.iter_s Lwt_unix.close fds >>= fun () ->
+  return ()
 
 let get_info { info } = return info
 
@@ -168,47 +190,45 @@ let lwt_wrap_exn name op offset length f =
                      (Printf.sprintf "%s: %s at file %s offset %Ld with length %d" 
                         op (Printexc.to_string e) name offset length))))
 
-let rec read x sector_start buffers = match buffers with
-  | [] -> return (`Ok ())
-  | b :: bs ->
-    begin match x.fd with
-      | None -> return (`Error `Disconnected)
-      | Some fd ->
-        let offset = Int64.(mul sector_start (of_int x.info.sector_size))  in
+let read x sector_start buffers = match x with
+  | { disconnected = true } -> return (`Error `Disconnected)
+  | _ ->
+  with_fd x
+    (fun fd ->
+      let offset = Int64.(mul sector_start (of_int x.info.sector_size))  in
+      Lwt_unix.LargeFile.lseek fd offset Unix.SEEK_SET >>= fun _ ->
+      let rec loop offset = function
+      | [] -> return (`Ok ())
+      | b :: bs ->
         lwt_wrap_exn x.name "read" offset (Cstruct.len b)
           (fun () ->
-             Lwt_mutex.with_lock x.m
-               (fun () ->
-                 Lwt_unix.LargeFile.lseek fd offset Unix.SEEK_SET >>= fun _ ->
-                 really_read fd b
-               ) >>= fun () ->
-             return (`Ok ())
+            really_read fd b >>= fun () ->
+            return (`Ok ())
           ) >>= function
-        | `Ok () -> read x Int64.(add sector_start (div (of_int (Cstruct.len b)) 512L)) bs
-        | `Error x -> return (`Error x)
-    end
+        | `Ok () -> loop Int64.(add offset (of_int (Cstruct.len b))) bs
+        | `Error x -> return (`Error x) in
+      loop offset buffers
+    )
 
-let rec write x sector_start buffers = match buffers with
-  | [] -> return (`Ok ())
-  | b :: bs ->
-    begin match x with
-      | { fd = None } -> 
-        return (`Error `Disconnected)
-      | { info = { read_write = false } } -> 
-        return (`Error `Is_read_only)
-      | { fd = Some fd } ->
-        let offset = Int64.(mul sector_start (of_int x.info.sector_size)) in
+let write x sector_start buffers = match x with
+  | { disconnected = true } -> return (`Error `Disconnected)
+  | { info = { read_write = false } } -> return (`Error `Is_read_only)
+  | _ ->
+  with_fd x
+    (fun fd ->
+      let offset = Int64.(mul sector_start (of_int x.info.sector_size)) in
+      Lwt_unix.LargeFile.lseek fd offset Unix.SEEK_SET >>= fun _ ->
+      let rec loop offset = function
+      | [] -> return (`Ok ())
+      | b :: bs ->
         lwt_wrap_exn x.name "write" offset (Cstruct.len b)
           (fun () ->
-             Lwt_mutex.with_lock x.m
-               (fun () ->
-                 Lwt_unix.LargeFile.lseek fd offset Unix.SEEK_SET >>= fun _ ->
-                 really_write fd b
-               ) >>= fun () ->
-             return (`Ok ())
+            really_write fd b >>= fun () ->
+            return (`Ok ())
           ) >>= function
-        | `Ok () -> 
-          write x Int64.(add sector_start (div (of_int (Cstruct.len b)) 512L)) bs
-        | `Error x -> 
-          return (`Error x)
-    end
+          | `Ok () -> 
+            loop Int64.(add offset (of_int (Cstruct.len b))) bs
+          | `Error x -> 
+            return (`Error x) in
+      loop offset buffers
+    )

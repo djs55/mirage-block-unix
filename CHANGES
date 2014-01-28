@@ -1,5 +1,7 @@
 trunk (unreleased)
 * Update to new io-page{,.unix} ocamlfind structure
+* Issue up to 16 parallel IO requests (NB 16 is an arbitrary number). The
+  aim is to behave like POSIX AIO, without actually using POSIX AIO.
 
 1.2.0 (18-Dec-2013)
 * Fix a serious race condition exposed when multiple threads access

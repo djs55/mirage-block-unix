@@ -247,6 +247,9 @@ let rec write x sector_start buffers = match buffers with
     end
 
 let resize t new_size_sectors =
+if new_size_sectors < t.info.size_sectors
+then failwith (Printf.sprintf "resize new_size_sectors %Ld < size_sectors %Ld" new_size_sectors t.info.size_sectors);
+
   let new_size_bytes = Int64.(mul new_size_sectors (of_int t.info.sector_size)) in
   match t.fd with
   | None -> return (`Error `Disconnected)

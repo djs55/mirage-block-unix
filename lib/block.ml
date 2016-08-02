@@ -272,8 +272,11 @@ let flush t =
   | Some fd ->
     lwt_wrap_exn t "fsync" 0L
       (fun () ->
+         let start = Unix.gettimeofday () in
          Lwt_unix.run_job (flush_job (Lwt_unix.unix_file_descr fd))
          >>= fun () ->
+         let time = Unix.gettimeofday () -. start in
+         Printf.fprintf stderr "flush took %.03f s\n%!" time;
          return (`Ok ())
       )
 

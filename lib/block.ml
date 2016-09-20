@@ -289,16 +289,23 @@ let resize t new_size_sectors =
 
 external flush_job: Unix.file_descr -> unit Lwt_unix.job = "mirage_block_unix_flush_job"
 
+let nr_flushes = ref 0
+
 let flush t =
   match t.fd with
   | None -> return (`Error `Disconnected)
   | Some fd ->
     lwt_wrap_exn t "fsync" 0L
       (fun () ->
+         let start = Unix.gettimeofday () in
          ( if t.use_fsync_on_flush
            then Lwt_unix.run_job (flush_job (Lwt_unix.unix_file_descr fd))
            else Lwt.return_unit )
          >>= fun () ->
+         let time = Unix.gettimeofday () -. start in
+         if t.use_fsync_on_flush
+         then Printf.fprintf stderr "flush %d took %.03f s\n%!" (!nr_flushes) time;
+         incr nr_flushes;
          return (`Ok ())
       )
 

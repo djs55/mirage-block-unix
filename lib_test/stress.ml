@@ -153,11 +153,11 @@ module Make(B: DISCARDABLE) = struct
     Random.init 0;
     let offset = 23856 in
     let sequence = [
-      `Write(2, 1);       (* allocate block 0 *)
-      `Discard(8, 32768); (* deallocate blocks 1 - 4097 *)
+      `Write(0, 1);       (* allocate block 0 *)
+      `Discard(8, 8);     (* deallocate block 1 *)
 
-      `Write(15, 2);
-      `Discard(16, 8);
+      `Write(15, 2);      (* allocate blocks 1 - 2 *)
+      `Discard(16, 8);    (* deallocate block 2 *)
     ] in
 
     let rec loop sequence =

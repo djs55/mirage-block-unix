@@ -154,7 +154,6 @@ module Make(B: DISCARDABLE) = struct
     let offset = 23856 in
     let sequence = [
       `Write(2, 1);       (* allocate block 0 *)
-      `Write(32776, 1);   (* allocate block 4097 *)
       `Discard(8, 32768); (* deallocate blocks 1 - 4097 *)
 
       `Write(15, 2);

@@ -151,10 +151,14 @@ module Make(B: DISCARDABLE) = struct
         Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "check written")
       ] in
     Random.init 0;
+    let offset = 0 in
     let sequence = [
-      `Discard(17802L, 33027L);
-      `Write(5561L, 52394L);
-      `Discard(41684L, 17571L);
+      `Write(2, 1);
+      `Write(32776, 1);
+      `Discard(8, 32768);
+
+      `Write(15, 23858);
+      `Discard(23872 + offset, 8);
     ] in
 
     let rec loop sequence =
@@ -164,6 +168,7 @@ module Make(B: DISCARDABLE) = struct
       match sequence with
       | [] -> Lwt.return_unit
       | `Discard (sector, n) :: rest ->
+        let sector = Int64.of_int sector and n = Int64.of_int n in
         if !debug then Printf.fprintf stderr "discard %Ld %Ld\n%!" sector n;
         Printf.printf "-%!";
         Lwt.pick [
@@ -172,6 +177,7 @@ module Make(B: DISCARDABLE) = struct
         ]
         >>= fun () -> loop rest
       | `Write (sector, n) :: rest ->
+        let sector = Int64.of_int sector and n = Int64.of_int n in
         if !debug then Printf.fprintf stderr "write %Ld %Ld\n%!" sector n;
         Printf.printf ".%!";
         Lwt.pick [

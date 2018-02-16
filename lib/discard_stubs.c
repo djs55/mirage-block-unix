@@ -22,6 +22,8 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include <stdio.h>
+
 #include <sys/param.h>
 #include <sys/mount.h>
 
@@ -77,6 +79,9 @@ static void worker_discard(struct job_discard *job)
     assert(len_to_zero <= delete_alignment);
     void *zero_buf = (void*)malloc(len_to_zero);
     bzero(zero_buf, len_to_zero);
+    fprintf(stderr, "pwrite fp_offset = %d len_to_zero = %d\n", fp_offset, len_to_zero);
+        //assert(0);
+
     ssize_t written = pwrite(job->fd, zero_buf, len_to_zero, (off_t) fp_offset);
     if (written == -1) {
       job->errno_copy = errno;
@@ -94,6 +99,9 @@ static void worker_discard(struct job_discard *job)
     fp_length -= len_to_zero;
     void *zero_buf = (void*)malloc(len_to_zero);
     bzero(zero_buf, len_to_zero);
+    //assert(0);
+    fprintf(stderr, "pwrite fp_offset = %d len_to_zero = %d\n", fp_offset + fp_length, len_to_zero);
+
     ssize_t written = pwrite(job->fd, zero_buf, len_to_zero, (off_t) (fp_offset + fp_length));
     if (written == -1) {
       job->errno_copy = errno;
@@ -102,6 +110,8 @@ static void worker_discard(struct job_discard *job)
     }
   }
   struct fpunchhole arg = { .fp_flags = 0, .reserved = 0, .fp_offset = (off_t) fp_offset, .fp_length = (off_t) fp_length };
+  fprintf(stderr, "fcntl fp_offset = %d fp_length = %d\n", fp_offset, fp_length);
+
   if (fcntl(job->fd, F_PUNCHHOLE, &arg) == -1){
     job->errno_copy = errno;
     job->error_fn = "fcntl(F_PUNCHHOLE)";

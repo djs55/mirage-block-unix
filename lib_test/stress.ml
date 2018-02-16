@@ -156,7 +156,8 @@ module Make(B: DISCARDABLE) = struct
       `Write(0, 1);       (* allocate block 0 *)
       `Discard(8, 8);     (* deallocate block 1 *)
 
-      `Write(15, 2);      (* allocate blocks 1 - 2 *)
+      `Write(8, 1);       (* allocate block 1 *)
+      `Write(16, 1);      (* allocate blocks 2 *)
       `Discard(16, 8);    (* deallocate block 2 *)
     ] in
 

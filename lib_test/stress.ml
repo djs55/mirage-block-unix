@@ -151,14 +151,14 @@ module Make(B: DISCARDABLE) = struct
         Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "check written")
       ] in
     Random.init 0;
-    let offset = 0 in
+    let offset = 23856 in
     let sequence = [
-      `Write(2, 1);
-      `Write(32776, 1);
-      `Discard(8, 32768);
+      `Write(2, 1);       (* allocate block 0 *)
+      `Write(32776, 1);   (* allocate block 4097 *)
+      `Discard(8, 32768); (* deallocate blocks 1 - 4097 *)
 
-      `Write(15, 23858);
-      `Discard(23872 + offset, 8);
+      `Write(15, 2);
+      `Discard(16, 8);
     ] in
 
     let rec loop sequence =

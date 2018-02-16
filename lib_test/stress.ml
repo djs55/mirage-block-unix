@@ -151,36 +151,35 @@ module Make(B: DISCARDABLE) = struct
         Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "check written")
       ] in
     Random.init 0;
-    let rec loop () =
+    let sequence = [
+      `Discard(17802L, 33027L);
+      `Write(5561L, 52394L);
+      `Discard(41684L, 17571L);
+    ] in
+
+    let rec loop sequence =
+      check_all_clusters ()
+      >>= fun () ->
       incr nr_iterations;
-      if !nr_iterations = stop_after then Lwt.return_unit else begin
-        let r = Random.int 21 in
-        (* A random action: mostly a write or a discard, occasionally a compact *)
-        ( if 0 <= r && r < 10 then begin
-            let sector = Random.int64 nr_sectors in
-            let n = Random.int64 (Int64.sub nr_sectors sector) in
-            if !debug then Printf.fprintf stderr "write %Ld %Ld\n%!" sector n;
-            Printf.printf ".%!";
-            Lwt.pick [
-              write sector n;
-              Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "write timeout")
-            ]
-          end else begin
-            let sector = Random.int64 nr_sectors in
-            let n = Random.int64 (Int64.sub nr_sectors sector) in
-            if !debug then Printf.fprintf stderr "discard %Ld %Ld\n%!" sector n;
-            Printf.printf "-%!";
-            Lwt.pick [
-              discard sector n;
-              Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "discard timeout")
-            ]
-          end )
-        >>= fun () ->
-        check_all_clusters ();
-        >>= fun () ->
-        loop ()
-      end in
-    Lwt.catch loop
+      match sequence with
+      | [] -> Lwt.return_unit
+      | `Discard (sector, n) :: rest ->
+        if !debug then Printf.fprintf stderr "discard %Ld %Ld\n%!" sector n;
+        Printf.printf "-%!";
+        Lwt.pick [
+          discard sector n;
+          Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "discard timeout")
+        ]
+        >>= fun () -> loop rest
+      | `Write (sector, n) :: rest ->
+        if !debug then Printf.fprintf stderr "write %Ld %Ld\n%!" sector n;
+        Printf.printf ".%!";
+        Lwt.pick [
+          write sector n;
+          Lwt_unix.sleep 30. >>= fun () -> Lwt.fail (Failure "write timeout")
+        ]
+        >>= fun () -> loop rest in
+    Lwt.catch (fun () -> loop sequence)
       (fun e ->
         Printf.fprintf stderr "Test failed on iteration # %d\n%!" !nr_iterations;
         Printexc.print_backtrace stderr;
@@ -238,8 +237,8 @@ let _ =
     Lwt.catch
       (fun () ->
         Test.random_write_discard (!stop_after) block
-        >>= fun () ->
-        Lwt_unix.unlink path
+        (* >>= fun () ->
+        Lwt_unix.unlink path *)
       ) (fun e ->
         Printf.fprintf stderr "Block device file is: %s\n%!" path;
         (* Don't delete it so it can be analysed *)

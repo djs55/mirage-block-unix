@@ -73,7 +73,7 @@ static void worker_discard(struct job_discard *job)
 
   size_t aligned_offset = ALIGNUP(fp_offset, delete_alignment);
   if (aligned_offset != fp_offset) {
-    size_t len_to_zero = aligned_offset - fp_offset;
+    size_t len_to_zero = MIN(fp_length, aligned_offset - fp_offset);
     assert(len_to_zero <= delete_alignment);
     void *zero_buf = (void*)malloc(len_to_zero);
     bzero(zero_buf, len_to_zero);
